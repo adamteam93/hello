@@ -33,8 +33,8 @@ unzip -o Lion_Docker.zip
 cd Lion_Docker
 
 # ======= Подстановка доменов =======
-echo "[INFO] Заменяем neotpuskai.ru на $MAIN_DOMAIN..."
-sed -i "s/neotpuskai\.ru/$MAIN_DOMAIN/g" default.conf
+echo "[INFO] Заменяем esportsteam24.ru на $MAIN_DOMAIN..."
+sed -i "s/esportsteam24\.ru/$MAIN_DOMAIN/g" default.conf
 
 echo "[INFO] Заменяем 123.kenricklomar.ru на $BACKEND_DOMAIN..."
 sed -i "s/123\.kenricklomar\.ru/$BACKEND_DOMAIN/g" default.conf
