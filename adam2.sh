@@ -28,9 +28,9 @@ fi
 
 # ======= Распаковка архива =======
 echo "[INFO] Распаковываем Lion_Docker.zip..."
-unzip -o Lion_Docker.zip
+unzip -o Gyzyl_Docker.zip
 
-cd Lion_Docker
+cd Gyzyl_Docker
 
 # ======= Подстановка доменов =======
 echo "[INFO] Заменяем esportsteam24.ru на $MAIN_DOMAIN..."
