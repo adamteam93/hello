@@ -4,7 +4,7 @@ set -e
 
 ZIP_URL="https://raw.githubusercontent.com/adamteam93/hello/refs/heads/main/Gyzyl_Docker.zip"
 echo "[INFO] Загружаем Gyzyl_Docker.zip..."
-curl -L -o Lion_Docker.zip "$ZIP_URL"
+curl -L -o Gyzyl_Docker.zip "$ZIP_URL"
 
 # ======= Ввод основного домена =======
 read -p "Введите основной домен (например, example.com): " MAIN_DOMAIN
