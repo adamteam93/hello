@@ -27,7 +27,7 @@ if ! command -v unzip &> /dev/null; then
 fi
 
 # ======= Распаковка архива =======
-echo "[INFO] Распаковываем Lion_Docker.zip..."
+echo "[INFO] Распаковываем Gyzyl_Docker.zip..."
 unzip -o Gyzyl_Docker.zip
 
 cd Gyzyl_Docker
