@@ -13,11 +13,14 @@ if [ -z "$MAIN_DOMAIN" ]; then
     exit 1
 fi
 
-# # ======= Ввод backend-домена (с дефолтом) =======
-# read -p "Введите адрес backend-прокси [по умолчанию: 123.kenricklomar.ru]: " BACKEND_DOMAIN
-# BACKEND_DOMAIN=${BACKEND_DOMAIN:-123.kenricklomar.ru}
+# ======= Ввод второго домена =======
+read -p "Введите второй домен (например, second.com): " SECOND_DOMAIN
+if [ -z "$SECOND_DOMAIN" ]; then
+    echo "[ОШИБКА] Второй домен не может быть пустым."
+    exit 1
+fi
 
-echo "[INFO] Используем основной домен: $MAIN_DOMAIN"
+echo "[INFO] Используем домены: $MAIN_DOMAIN и $SECOND_DOMAIN"
 
 # ======= Установка unzip при необходимости =======
 if ! command -v unzip &> /dev/null; then
@@ -35,8 +38,8 @@ cd All_Docker
 echo "[INFO] Заменяем esportsteam24.ru на $MAIN_DOMAIN..."
 sed -i "s/esportsteam24\.ru/$MAIN_DOMAIN/g" default.conf
 
-# echo "[INFO] Заменяем 123.kenricklomar.ru на $BACKEND_DOMAIN..."
-# sed -i "s/123\.kenricklomar\.ru/$BACKEND_DOMAIN/g" default.conf
+echo "[INFO] Заменяем esportsteam555.ru на $SECOND_DOMAIN..."
+sed -i "s/esportsteam555\.ru/$SECOND_DOMAIN/g" default.conf
 
 # ======= Установка certbot при необходимости =======
 if ! command -v certbot &> /dev/null; then
@@ -44,10 +47,13 @@ if ! command -v certbot &> /dev/null; then
     apt install -y certbot
 fi
 
-# ======= Получение сертификата =======
-echo "[INFO] Получаем SSL-сертификат для $MAIN_DOMAIN..."
+# ======= Получение SSL-сертификатов =======
+echo "[INFO] Получаем SSL-сертификаты..."
 certbot certonly --standalone -d "$MAIN_DOMAIN" --non-interactive --agree-tos -m admin@$MAIN_DOMAIN || {
-    echo "[WARN] Certbot завершился с ошибкой. Проверьте DNS и свободен ли порт 80."
+    echo "[WARN] Ошибка при получении сертификата для $MAIN_DOMAIN."
+}
+certbot certonly --standalone -d "$SECOND_DOMAIN" --non-interactive --agree-tos -m admin@$SECOND_DOMAIN || {
+    echo "[WARN] Ошибка при получении сертификата для $SECOND_DOMAIN."
 }
 
 # ======= Установка docker при необходимости =======
@@ -59,6 +65,9 @@ fi
 # ======= Сборка Docker-образа =======
 echo "[INFO] Собираем Docker-образ stealth-bridge..."
 docker build -t stealth-bridge .
+
+# ======= Удаляем старый контейнер (если есть) =======
+docker rm -f stealth-bridge 2>/dev/null || true
 
 # ======= Запуск Docker-контейнера =======
 echo "[INFO] Запускаем контейнер stealth-bridge..."
@@ -73,4 +82,4 @@ docker run -d \
     --log-opt max-file=5 \
     stealth-bridge
 
-echo "[✅ DONE] Контейнер stealth-bridge успешно запущен."
+echo "[✅ DONE] Контейнер stealth-bridge успешно запущен с двумя доменами."
