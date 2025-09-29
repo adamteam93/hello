@@ -69,8 +69,36 @@ docker build -t stealth-bridge .
 # ======= Удаляем старый контейнер (если есть) =======
 docker rm -f stealth-bridge 2>/dev/null || true
 
+echo "[INFO] Применяем параметры sysctl для оптимизации TCP..."
+
+# Очереди соединений
+sysctl -w net.core.somaxconn=65535
+sysctl -w net.ipv4.tcp_max_syn_backlog=65535
+sysctl -w net.ipv4.tcp_max_orphans=65536
+
+# TIME-WAIT и FIN
+sysctl -w net.ipv4.tcp_fin_timeout=15
+sysctl -w net.ipv4.tcp_tw_reuse=1
+
+# Keepalive
+sysctl -w net.ipv4.tcp_keepalive_time=600
+sysctl -w net.ipv4.tcp_keepalive_intvl=30
+sysctl -w net.ipv4.tcp_keepalive_probes=10
+
+# Буферы
+sysctl -w net.core.rmem_max=16777216
+sysctl -w net.core.wmem_max=16777216
+sysctl -w net.ipv4.tcp_rmem="4096 87380 16777216"
+sysctl -w net.ipv4.tcp_wmem="4096 65536 16777216"
+
+# Защита
+sysctl -w net.ipv4.tcp_syncookies=1
+sysctl -w net.ipv4.icmp_echo_ignore_broadcasts=1
+sysctl -w net.ipv4.icmp_ignore_bogus_error_responses=1
+
 # ======= Запуск Docker-контейнера =======
 echo "[INFO] Запускаем контейнер stealth-bridge..."
 docker run -d   --name stealth-bridge   -v /etc/letsencrypt:/etc/letsencrypt:ro   --network host   --ulimit nofile=65535:65535   --memory=1800m   --cpus=2   --log-driver=none   stealth-bridge
+
 
 echo "[✅ DONE] Контейнер stealth-bridge успешно запущен с двумя доменами."
