@@ -71,17 +71,6 @@ docker rm -f stealth-bridge 2>/dev/null || true
 
 # ======= Запуск Docker-контейнера =======
 echo "[INFO] Запускаем контейнер stealth-bridge..."
-docker run -d \
-  --name stealth-bridge \
-  -v /etc/letsencrypt:/etc/letsencrypt:ro \
-  -p 80:80 \
-  -p 443:444 \
-  --ulimit nofile=65535:65535 \
-  --memory=1800m \
-  --cpus=2 \
-  --log-driver=json-file \
-  --log-opt max-size=50m \
-  --log-opt max-file=3 \
-  stealth-bridge
+docker run -d   --name stealth-bridge   -v /etc/letsencrypt:/etc/letsencrypt:ro   --network host   --ulimit nofile=65535:65535   --memory=1800m   --cpus=2   --log-driver=none   stealth-bridge
 
 echo "[✅ DONE] Контейнер stealth-bridge успешно запущен с двумя доменами."
