@@ -127,9 +127,6 @@ docker build -t stealth-bridge . || {
     exit 1
 }
 
-# ======= Удаляем старый контейнер =======
-docker rm -f stealth-bridge 2>/dev/null || true
-
 # ======= Применяем оптимизированные параметры sysctl =======
 log "INFO: Применяем параметры sysctl для оптимизации TCP..."
 
@@ -155,7 +152,43 @@ EOF
 # Применяем настройки
 sysctl -p
 
-# ======= Создаем systemd сервис для автозапуска =======
+# ======= Настройка SSH порта ПЕРЕД запуском контейнера =======
+if [ "$SSH_PORT" != "22" ]; then
+    log "INFO: Настраиваем SSH порт $SSH_PORT..."
+
+    # Создаем резервную копию конфигурации SSH
+    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
+
+    # Изменяем порт в конфигурации SSH
+    if grep -q "^Port " /etc/ssh/sshd_config; then
+        sed -i "s/^Port .*/Port $SSH_PORT/" /etc/ssh/sshd_config
+    elif grep -q "^#Port " /etc/ssh/sshd_config; then
+        sed -i "s/^#Port .*/Port $SSH_PORT/" /etc/ssh/sshd_config
+    else
+        echo "Port $SSH_PORT" >> /etc/ssh/sshd_config
+    fi
+
+    log "INFO: SSH порт изменен на $SSH_PORT"
+fi
+
+# ======= Настройка firewall =======
+if command -v ufw &> /dev/null; then
+    log "INFO: Настраиваем ufw для портов..."
+    ufw --force reset || true  # Сбрасываем правила
+    ufw allow $SSH_PORT/tcp || true    # SSH
+    ufw allow 80/tcp || true          # HTTP для Let's Encrypt
+    ufw allow 443/tcp || true         # HTTPS для контейнера
+    ufw --force enable || true
+fi
+
+# Настраиваем iptables как резерв
+iptables -A INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || true
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
+iptables -A INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || true
+
+log "INFO: Открыты порты: $SSH_PORT (SSH), 80 (HTTP), 443 (HTTPS)"
+
+# ======= Создаем улучшенный systemd сервис =======
 cat > /etc/systemd/system/stealth-bridge.service << EOF
 [Unit]
 Description=Stealth Bridge Container
@@ -163,8 +196,10 @@ After=docker.service
 Requires=docker.service
 
 [Service]
-Type=oneshot
+Type=forking
 RemainAfterExit=true
+ExecStartPre=-/usr/bin/docker stop stealth-bridge
+ExecStartPre=-/usr/bin/docker rm stealth-bridge
 ExecStart=/usr/bin/docker run -d \\
     --name stealth-bridge \\
     -v /etc/letsencrypt:/etc/letsencrypt:ro \\
@@ -185,79 +220,41 @@ EOF
 systemctl daemon-reload
 systemctl enable stealth-bridge
 
-# ======= Запуск контейнера =======
-log "INFO: Запускаем контейнер stealth-bridge..."
-docker run -d \
-    --name stealth-bridge \
-    -v /etc/letsencrypt:/etc/letsencrypt:ro \
-    --network host \
-    --ulimit nofile=65535:65535 \
-    --memory=1800m \
-    --cpus=2 \
-    --log-driver=none \
-    --restart=unless-stopped \
-    stealth-bridge || {
-    log "ERROR: Не удалось запустить контейнер"
-    exit 1
+# ======= Остановка и удаление старых контейнеров =======
+log "INFO: Очищаем старые контейнеры..."
+docker stop stealth-bridge 2>/dev/null || true
+docker rm -f stealth-bridge 2>/dev/null || true
+
+# ======= Запуск контейнера через systemd =======
+log "INFO: Запускаем контейнер stealth-bridge через systemd..."
+systemctl start stealth-bridge || {
+    log "ERROR: Не удалось запустить сервис stealth-bridge"
+    # Пробуем запустить напрямую для диагностики
+    log "INFO: Пробуем запустить контейнер напрямую..."
+    docker run -d \
+        --name stealth-bridge \
+        -v /etc/letsencrypt:/etc/letsencrypt:ro \
+        --network host \
+        --ulimit nofile=65535:65535 \
+        --memory=1800m \
+        --cpus=2 \
+        --log-driver=none \
+        --restart=unless-stopped \
+        stealth-bridge || {
+        log "ERROR: Критическая ошибка при запуске контейнера"
+        exit 1
+    }
 }
 
 log "SUCCESS: Контейнер stealth-bridge успешно запущен с доменами: $MAIN_DOMAIN, $SECOND_DOMAIN"
 log "INFO: Сервис добавлен в автозапуск"
 
-# Показываем статус
-docker ps | grep stealth-bridge
+# ======= Проверяем статус =======
+log "INFO: Статус контейнера:"
+docker ps | grep stealth-bridge || log "WARN: Контейнер не найден в списке запущенных"
 
-# ======= Настройка SSH порта =======
-if [ "$SSH_PORT" != "22" ]; then
-    log "INFO: Настраиваем SSH порт $SSH_PORT..."
-
-    # Создаем резервную копию конфигурации SSH
-    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
-
-    # Изменяем порт в конфигурации SSH
-    if grep -q "^Port " /etc/ssh/sshd_config; then
-        sed -i "s/^Port .*/Port $SSH_PORT/" /etc/ssh/sshd_config
-    elif grep -q "^#Port " /etc/ssh/sshd_config; then
-        sed -i "s/^#Port .*/Port $SSH_PORT/" /etc/ssh/sshd_config
-    else
-        echo "Port $SSH_PORT" >> /etc/ssh/sshd_config
-    fi
-
-    # Настраиваем ufw если установлен
-    if command -v ufw &> /dev/null; then
-        log "INFO: Настраиваем ufw для портов..."
-        ufw allow $SSH_PORT/tcp || true
-        ufw allow 80/tcp || true     # HTTP для Let's Encrypt
-        ufw allow 443/tcp || true    # HTTPS
-        if [ "$SSH_PORT" != "22" ]; then
-            ufw delete allow 22/tcp 2>/dev/null || true
-        fi
-        ufw --force enable || true
-    fi
-
-    # Настраиваем iptables как резерв
-    iptables -A INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || true
-    iptables -A INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
-    iptables -A INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || true
-
-    log "INFO: SSH порт изменен на $SSH_PORT"
-    log "INFO: Открыты порты: $SSH_PORT (SSH), 80 (HTTP), 443 (HTTPS)"
-else
-    log "INFO: SSH порт остается стандартным (22)"
-    
-    # Настраиваем базовые порты даже если SSH не меняется
-    if command -v ufw &> /dev/null; then
-        log "INFO: Настраиваем ufw для веб-портов..."
-        ufw allow 22/tcp || true     # SSH
-        ufw allow 80/tcp || true     # HTTP
-        ufw allow 443/tcp || true    # HTTPS
-        ufw --force enable || true
-    fi
-    
-    iptables -A INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null || true
-    iptables -A INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
-    iptables -A INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || true
-fi
+# Проверяем статус сервиса
+systemctl status stealth-bridge --no-pager || log "WARN: Проблемы со статусом сервиса"
 
 # ======= Финальная информация и перезагрузка =======
 log "SUCCESS: Установка завершена!"
@@ -266,10 +263,10 @@ log "INFO: SSH порт: $SSH_PORT"
 log "INFO: Контейнер stealth-bridge запущен и добавлен в автозапуск"
 
 # Пауза перед перезагрузкой
-log "INFO: Сервер будет перезагружен через 10 секунд для применения всех настроек..."
+log "INFO: Сервер будет перезагружен через 15 секунд для применения всех настроек..."
 log "WARNING: После перезагрузки подключайтесь по SSH через порт $SSH_PORT"
 
-sleep 10
+sleep 15
 
 log "INFO: Перезагружаем сервер..."
 shutdown -r now
