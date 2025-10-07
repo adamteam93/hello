@@ -37,6 +37,20 @@ fi
 
 log "INFO: Используем домены: $MAIN_DOMAIN и $SECOND_DOMAIN"
 
+# ======= Ввод SSH порта =======
+read -p "Введите новый SSH порт (22-65535, по умолчанию 22): " SSH_PORT
+if [ -z "$SSH_PORT" ]; then
+    SSH_PORT=22
+fi
+
+# Валидация SSH порта
+if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]] || [ "$SSH_PORT" -lt 22 ] || [ "$SSH_PORT" -gt 65535 ]; then
+    log "ERROR: SSH порт должен быть числом от 22 до 65535"
+    exit 1
+fi
+
+log "INFO: Используем SSH порт: $SSH_PORT"
+
 # ======= Установка необходимых пакетов =======
 install_if_missing() {
     if ! command -v $1 &> /dev/null; then
@@ -192,3 +206,70 @@ log "INFO: Сервис добавлен в автозапуск"
 
 # Показываем статус
 docker ps | grep stealth-bridge
+
+# ======= Настройка SSH порта =======
+if [ "$SSH_PORT" != "22" ]; then
+    log "INFO: Настраиваем SSH порт $SSH_PORT..."
+
+    # Создаем резервную копию конфигурации SSH
+    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
+
+    # Изменяем порт в конфигурации SSH
+    if grep -q "^Port " /etc/ssh/sshd_config; then
+        sed -i "s/^Port .*/Port $SSH_PORT/" /etc/ssh/sshd_config
+    elif grep -q "^#Port " /etc/ssh/sshd_config; then
+        sed -i "s/^#Port .*/Port $SSH_PORT/" /etc/ssh/sshd_config
+    else
+        echo "Port $SSH_PORT" >> /etc/ssh/sshd_config
+    fi
+
+    # Настраиваем ufw если установлен
+    if command -v ufw &> /dev/null; then
+        log "INFO: Настраиваем ufw для портов..."
+        ufw allow $SSH_PORT/tcp || true
+        ufw allow 80/tcp || true     # HTTP для Let's Encrypt
+        ufw allow 443/tcp || true    # HTTPS
+        if [ "$SSH_PORT" != "22" ]; then
+            ufw delete allow 22/tcp 2>/dev/null || true
+        fi
+        ufw --force enable || true
+    fi
+
+    # Настраиваем iptables как резерв
+    iptables -A INPUT -p tcp --dport $SSH_PORT -j ACCEPT 2>/dev/null || true
+    iptables -A INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
+    iptables -A INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || true
+
+    log "INFO: SSH порт изменен на $SSH_PORT"
+    log "INFO: Открыты порты: $SSH_PORT (SSH), 80 (HTTP), 443 (HTTPS)"
+else
+    log "INFO: SSH порт остается стандартным (22)"
+    
+    # Настраиваем базовые порты даже если SSH не меняется
+    if command -v ufw &> /dev/null; then
+        log "INFO: Настраиваем ufw для веб-портов..."
+        ufw allow 22/tcp || true     # SSH
+        ufw allow 80/tcp || true     # HTTP
+        ufw allow 443/tcp || true    # HTTPS
+        ufw --force enable || true
+    fi
+    
+    iptables -A INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null || true
+    iptables -A INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
+    iptables -A INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || true
+fi
+
+# ======= Финальная информация и перезагрузка =======
+log "SUCCESS: Установка завершена!"
+log "INFO: Домены: $MAIN_DOMAIN, $SECOND_DOMAIN"
+log "INFO: SSH порт: $SSH_PORT"
+log "INFO: Контейнер stealth-bridge запущен и добавлен в автозапуск"
+
+# Пауза перед перезагрузкой
+log "INFO: Сервер будет перезагружен через 10 секунд для применения всех настроек..."
+log "WARNING: После перезагрузки подключайтесь по SSH через порт $SSH_PORT"
+
+sleep 10
+
+log "INFO: Перезагружаем сервер..."
+shutdown -r now
