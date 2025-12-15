@@ -77,8 +77,8 @@ fi
 cd All_DockerCaddy
 
 # ======= Проверка наличия конфигурационного файла =======
-if [ ! -f "default.conf" ]; then
-    log "ERROR: Файл default.conf не найден"
+if [ ! -f "Caddyfile" ]; then
+    log "ERROR: Файл Caddyfile не найден"
     exit 1
 fi
 
