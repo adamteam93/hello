@@ -84,8 +84,8 @@ fi
 
 # ======= Подстановка доменов =======
 log "INFO: Заменяем домены в конфигурации..."
-sed -i.bak "s/esportsteam24\.ru/$MAIN_DOMAIN/g" default.conf
-sed -i.bak "s/esportsteam555\.ru/$SECOND_DOMAIN/g" default.conf
+sed -i.bak "s/esportsteam24\.ru/$MAIN_DOMAIN/g" Caddyfile
+sed -i.bak "s/esportsteam555\.ru/$SECOND_DOMAIN/g" Caddyfile
 
 
 # ======= Проверка наличия Dockerfile =======
