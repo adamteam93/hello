@@ -69,12 +69,12 @@ unzip -o All_DockerCaddy.zip || {
     exit 1
 }
 
-if [ ! -d "All_Docker" ]; then
+if [ ! -d "All_DockerCaddy" ]; then
     log "ERROR: Директория All_Docker не найдена после распаковки"
     exit 1
 fi
 
-cd All_Docker
+cd All_DockerCaddy
 
 # ======= Проверка наличия конфигурационного файла =======
 if [ ! -f "default.conf" ]; then
