@@ -307,10 +307,12 @@ EOF
 fi
 
 # ====================================================================
-# 10. SSH порт
+# 10. SSH порт (учитывает socket activation в Ubuntu 22.10+)
 # ====================================================================
 if [ "$SSH_PORT" != "22" ]; then
     log "INFO: Меняем SSH порт на $SSH_PORT..."
+
+    # 10.1 sshd_config — на случай не-systemd-socket систем
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
     if grep -q "^Port " /etc/ssh/sshd_config; then
         sed -i "s/^Port .*/Port $SSH_PORT/" /etc/ssh/sshd_config
@@ -318,6 +320,39 @@ if [ "$SSH_PORT" != "22" ]; then
         sed -i "s/^#Port .*/Port $SSH_PORT/" /etc/ssh/sshd_config
     else
         echo "Port $SSH_PORT" >> /etc/ssh/sshd_config
+    fi
+
+    # 10.2 ssh.socket override — для Ubuntu 22.10+ / 24.04 / 25.04, где SSH работает через socket activation
+    if systemctl list-unit-files | grep -qE "^ssh\.socket"; then
+        log "INFO: Обнаружен ssh.socket (socket activation) — создаём override..."
+        mkdir -p /etc/systemd/system/ssh.socket.d
+        cat > /etc/systemd/system/ssh.socket.d/override.conf <<EOF
+[Socket]
+ListenStream=
+ListenStream=$SSH_PORT
+EOF
+        systemctl daemon-reload
+        systemctl restart ssh.socket || log "WARN: не удалось рестартить ssh.socket"
+    fi
+
+    # 10.3 Рестарт самого sshd
+    systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+
+    # 10.4 Проверка: SSH реально слушает новый порт?
+    sleep 2
+    if ss -tlnp 2>/dev/null | grep -qE ":${SSH_PORT}\s"; then
+        log "SUCCESS: SSH слушает $SSH_PORT"
+    else
+        log "ERROR: SSH НЕ слушает $SSH_PORT! Откатываем всё на порт 22..."
+        # Откатываем sshd_config
+        cp /etc/ssh/sshd_config.backup /etc/ssh/sshd_config
+        # Удаляем socket override
+        rm -f /etc/systemd/system/ssh.socket.d/override.conf
+        systemctl daemon-reload
+        systemctl restart ssh.socket 2>/dev/null || true
+        systemctl restart ssh 2>/dev/null || true
+        SSH_PORT=22
+        log "WARN: SSH порт откачен на 22, продолжаем установку"
     fi
 fi
 
@@ -408,7 +443,8 @@ log "  SSH: $SSH_PORT"
 docker ps | grep stealth-bridge || log "WARN: контейнер не в docker ps"
 systemctl status stealth-bridge --no-pager | head -20 || true
 
-log "INFO: Ребут через 15 секунд..."
+log "INFO: Ребут через 15 секунд для применения всех настроек..."
 log "WARNING: После ребута SSH на порту $SSH_PORT!"
 sleep 15
+log "INFO: Перезагружаем..."
 shutdown -r now
