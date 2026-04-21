@@ -65,8 +65,23 @@ if [ "$USE_IP" = "1" ]; then
     SSL_IP="${SSL_IP:-$DEFAULT_IP}"
     validate_ip "$SSL_IP" || die "IP невалиден: $SSL_IP"
 
-    read -p "Email для Let's Encrypt (default: admin@example.com): " LE_EMAIL
-    LE_EMAIL="${LE_EMAIL:-admin@example.com}"
+    # Email для LE (example.com запрещён, пустое значение = ошибка)
+    while true; do
+        read -p "Email для Let's Encrypt (например you@gmail.com): " LE_EMAIL
+        if [ -z "$LE_EMAIL" ]; then
+            log "ERROR: Email обязателен"
+            continue
+        fi
+        if [[ "$LE_EMAIL" =~ @(example\.(com|org|net)|localhost|test|invalid)$ ]]; then
+            log "ERROR: $LE_EMAIL — запрещённый домен в LE. Используй реальный (gmail.com, yandex.ru, и т.п.)"
+            continue
+        fi
+        if ! [[ "$LE_EMAIL" =~ ^[^@]+@[^@]+\.[a-zA-Z]{2,}$ ]]; then
+            log "ERROR: Невалидный email: $LE_EMAIL"
+            continue
+        fi
+        break
+    done
 
     read -p "Куда проксировать https://$SSL_IP/? (default: https://s1.znayaclub.ru): " IP_UPSTREAM
     IP_UPSTREAM="${IP_UPSTREAM:-https://s1.znayaclub.ru}"
@@ -110,11 +125,22 @@ if [ "$USE_IP" = "1" ]; then
     docker stop stealth-bridge 2>/dev/null || true
     sleep 2
 
+    # Валидация email (LE запрещает example.com и другие reserved-домены)
+    if [[ "$LE_EMAIL" =~ @(example\.(com|org|net)|localhost|test|invalid)$ ]]; then
+        die "Email домен запрещён Let's Encrypt: $LE_EMAIL (используй реальный домен, например gmail.com)"
+    fi
+
     if [ ! -f ~/.acme.sh/acme.sh ]; then
         log "INFO: Устанавливаем acme.sh..."
         curl -s https://get.acme.sh | sh -s email="$LE_EMAIL" >/dev/null
     fi
     ACME=~/.acme.sh/acme.sh
+
+    # Принудительно обновляем account email (если acme.sh был установлен раньше с другим email)
+    log "INFO: Регистрируем/обновляем LE-аккаунт с email=$LE_EMAIL..."
+    $ACME --update-account --accountemail "$LE_EMAIL" --server letsencrypt 2>/dev/null \
+        || $ACME --register-account --accountemail "$LE_EMAIL" --server letsencrypt 2>/dev/null \
+        || true
 
     mkdir -p "$IP_CERT_DIR"
 
@@ -125,6 +151,7 @@ if [ "$USE_IP" = "1" ]; then
             -d "$SSL_IP" \
             --standalone \
             --server letsencrypt \
+            --accountemail "$LE_EMAIL" \
             --certificate-profile shortlived \
             --days 6 \
             --httpport 80 \
@@ -133,7 +160,8 @@ if [ "$USE_IP" = "1" ]; then
         log "       Проверь:"
         log "       1) порт 80 открыт снаружи (security group cloud-провайдера)"
         log "       2) IP публичный (не NAT, не серый)"
-        log "       3) Свежий acme.sh (должен знать --certificate-profile)"
+        log "       3) Email валидный (не example.com/test/localhost)"
+        log "       4) Свежий acme.sh (должен знать --certificate-profile)"
         exit 1
     fi
 
