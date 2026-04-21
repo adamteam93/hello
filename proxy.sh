@@ -136,11 +136,21 @@ if [ "$USE_IP" = "1" ]; then
     fi
     ACME=~/.acme.sh/acme.sh
 
-    # Принудительно обновляем account email (если acme.sh был установлен раньше с другим email)
-    log "INFO: Регистрируем/обновляем LE-аккаунт с email=$LE_EMAIL..."
-    $ACME --update-account --accountemail "$LE_EMAIL" --server letsencrypt 2>/dev/null \
-        || $ACME --register-account --accountemail "$LE_EMAIL" --server letsencrypt 2>/dev/null \
-        || true
+    # ЖЁСТКИЙ сброс email в account.conf (если acme.sh был установлен раньше)
+    log "INFO: Чистим кэш acme.sh-аккаунта..."
+    # Затираем ACCOUNT_EMAIL в глобальном конфиге
+    if [ -f ~/.acme.sh/account.conf ]; then
+        sed -i "/^ACCOUNT_EMAIL=/d" ~/.acme.sh/account.conf
+    fi
+    echo "ACCOUNT_EMAIL='$LE_EMAIL'" >> ~/.acme.sh/account.conf
+    # Удаляем локальные CA-кэши (там хранятся зарегистрированные с невалидным email аккаунты)
+    rm -rf ~/.acme.sh/ca 2>/dev/null || true
+
+    log "INFO: Регистрируем LE-аккаунт с email=$LE_EMAIL..."
+    if ! $ACME --register-account --accountemail "$LE_EMAIL" --server letsencrypt; then
+        log "ERROR: Не удалось зарегистрировать LE-аккаунт с email $LE_EMAIL"
+        exit 1
+    fi
 
     mkdir -p "$IP_CERT_DIR"
 
