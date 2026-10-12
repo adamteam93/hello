@@ -394,7 +394,6 @@ ExecStart=/usr/bin/docker run -d \\
     --network host \\
     --ulimit nofile=65535:65535 \\
     --memory=1800m \\
-    --cpus=2 \\
     --log-driver=none \\
     --restart=unless-stopped \\
     $VOL_ARG \\
@@ -424,7 +423,6 @@ if ! systemctl start stealth-bridge; then
         --network host \
         --ulimit nofile=65535:65535 \
         --memory=1800m \
-        --cpus=2 \
         --log-driver=none \
         --restart=unless-stopped \
         $VOL_ARG \
